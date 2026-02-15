@@ -1,0 +1,208 @@
+# ##############################################################################
+# PROJET : Contrôleur de Fermentation Bière Pro
+# CRÉÉ PAR : Zorback & Gemini
+# VERSION : 1.0 (Février 2026)
+# 
+# LICENCE : 
+# - Usage privé/personnel : Gratuit et autorisé.
+# - Usage commercial : STRICTEMENT INTERDIT sans accord préalable.
+# - Pour toute demande ou collaboration : emaildeguillaume@gmail.com
+# ##############################################################################
+
+esphome:
+  name: controleur-biere-pro
+  friendly_name: "Controleur Biere Pro"
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+wifi:
+  ssid: "VOTRE_SSID_WIFI"
+  password: "VOTRE_MOT_DE_PASSE"
+
+ota:
+  - platform: esphome
+
+api:
+
+globals:
+  - id: menu_page
+    type: int
+    initial_value: '0'
+  - id: selected_line
+    type: int
+    initial_value: '0'
+  - id: hysteresis
+    type: float
+    restore_value: yes
+    initial_value: '1.0'
+  - id: comp_delay
+    type: int
+    restore_value: yes
+    initial_value: '5'
+
+i2c:
+  sda: GPIO21
+  scl: GPIO22
+  scan: true
+
+one_wire:
+  - platform: gpio
+    pin: GPIO4
+
+sensor:
+  - platform: dallas_temp
+    index: 0
+    name: "Temp F1"
+    id: temp_f1
+    update_interval: 10s
+
+  - platform: dallas_temp
+    index: 1
+    name: "Temp F2"
+    id: temp_f2
+    update_interval: 10s
+
+  - platform: rotary_encoder
+    id: mon_encodeur
+    pin_a: GPIO32
+    pin_b: GPIO33
+    on_clockwise:
+      - lambda: |-
+          if (id(menu_page) == 1) {
+            if (id(selected_line) == 0) id(therm1).target_temperature_low += 0.5;
+            else id(therm2).target_temperature_low += 0.5;
+          } else if (id(menu_page) == 2) {
+            if (id(selected_line) == 0) id(hysteresis) = std::min(5.0f, id(hysteresis) + 0.2f);
+            else id(comp_delay) = std::min(20, id(comp_delay) + 1);
+          }
+    on_anticlockwise:
+      - lambda: |-
+          if (id(menu_page) == 1) {
+            if (id(selected_line) == 0) id(therm1).target_temperature_low -= 0.5;
+            else id(therm2).target_temperature_low -= 0.5;
+          } else if (id(menu_page) == 2) {
+            if (id(selected_line) == 0) id(hysteresis) = std::max(0.0f, id(hysteresis) - 0.2f);
+            else id(comp_delay) = std::max(1, id(comp_delay) - 1);
+          }
+
+binary_sensor:
+  - platform: gpio
+    id: bouton_physique
+    pin:
+      number: GPIO25
+      mode: INPUT_PULLUP
+      inverted: true
+    on_multi_click:
+      - timing:
+          - ON FOR AT LEAST 50ms
+          - OFF FOR AT LEAST 50ms
+        then:
+          - lambda: 'id(selected_line) = (id(selected_line) == 0) ? 1 : 0;'
+      - timing:
+          - ON FOR AT LEAST 500ms
+        then:
+          - lambda: |-
+              id(selected_line) = 0;
+              id(menu_page)++;
+              if (id(menu_page) > 2) id(menu_page) = 0;
+
+switch:
+  - platform: gpio
+    pin: 
+      number: GPIO13
+      mode: OUTPUT
+    id: relay_chaud_f1
+    inverted: true
+  - platform: gpio
+    pin: GPIO14
+    id: relay_froid_f1
+    inverted: true
+  - platform: gpio
+    pin: GPIO26
+    id: relay_chaud_f2
+    inverted: true
+  - platform: gpio
+    pin: GPIO27
+    id: relay_froid_f2
+    inverted: true
+
+interval:
+  - interval: 1s
+    then:
+      - lambda: |-
+          auto call1 = id(therm1).make_call();
+          call1.set_target_temperature_high(id(therm1).target_temperature_low + id(hysteresis));
+          call1.perform();
+          auto call2 = id(therm2).make_call();
+          call2.set_target_temperature_high(id(therm2).target_temperature_low + id(hysteresis));
+          call2.perform();
+
+climate:
+  - platform: bang_bang
+    name: "Thermostat F1"
+    id: therm1
+    sensor: temp_f1
+    default_target_temperature_low: 19 °C
+    default_target_temperature_high: 20 °C
+    heat_action:
+      - switch.turn_on: relay_chaud_f1
+    cool_action:
+      - if:
+          condition:
+            for:
+              time: !lambda "return id(comp_delay) * 60000;"
+              condition:
+                switch.is_off: relay_froid_f1
+          then:
+            - switch.turn_on: relay_froid_f1
+    idle_action:
+      - switch.turn_off: relay_chaud_f1
+      - switch.turn_off: relay_froid_f1
+
+  - platform: bang_bang
+    name: "Thermostat F2"
+    id: therm2
+    sensor: temp_f2
+    default_target_temperature_low: 19 °C
+    default_target_temperature_high: 20 °C
+    heat_action:
+      - switch.turn_on: relay_chaud_f2
+    cool_action:
+      - if:
+          condition:
+            for:
+              time: !lambda "return id(comp_delay) * 60000;"
+              condition:
+                switch.is_off: relay_froid_f2
+          then:
+            - switch.turn_on: relay_froid_f2
+    idle_action:
+      - switch.turn_off: relay_chaud_f2
+      - switch.turn_off: relay_froid_f2
+
+display:
+  - platform: lcd_pcf8574
+    dimensions: 20x4
+    address: 0x27
+    lambda: |-
+      if (id(menu_page) == 0) {
+        it.print(4, 0, "FERMENTATION");
+        it.printf(0, 1, "F1: %.1f C", id(temp_f1).state);
+        it.printf(0, 2, "F2: %.1f C", id(temp_f2).state);
+        it.print(0, 3, " [Appui Long: Menu]");
+      } 
+      else if (id(menu_page) == 1) {
+        it.print(0, 0, "--- TEMP. CIBLE ---");
+        it.printf(0, 1, "%s Cons. F1: %.1fC", id(selected_line) == 0 ? ">" : " ", id(therm1).target_temperature_low);
+        it.printf(0, 2, "%s Cons. F2: %.1fC", id(selected_line) == 1 ? ">" : " ", id(therm2).target_temperature_low);
+        it.print(0, 3, " [Appui Long: Options]");
+      }
+      else if (id(menu_page) == 2) {
+        it.print(0, 0, "--- OPTIONS ---");
+        it.printf(0, 1, "%s Sensibilite: %.1fC", id(selected_line) == 0 ? ">" : " ", id(hysteresis));
+        it.printf(0, 2, "%s Protection: %d min", id(selected_line) == 1 ? ">" : " ", id(comp_delay));
+        it.print(0, 3, " [Appui Long: Accueil]");
+      }
