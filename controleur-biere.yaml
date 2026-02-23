@@ -1,13 +1,14 @@
 # ##############################################################################
 # PROJET : Contrôleur de Fermentation Bière Pro
 # CRÉÉ PAR : Zorback & Gemini
-# VERSION : 1.0 (Février 2026)
+# VERSION : 1.1 (Février 2026)
 # 
 # LICENCE : 
 # - Usage privé/personnel : Gratuit et autorisé.
 # - Usage commercial : STRICTEMENT INTERDIT sans accord préalable.
 # - Pour toute demande ou collaboration : emaildeguillaume@gmail.com
 # ##############################################################################
+
 
 esphome:
   name: controleur-biere-pro
@@ -111,9 +112,7 @@ binary_sensor:
 
 switch:
   - platform: gpio
-    pin: 
-      number: GPIO13
-      mode: OUTPUT
+    pin: GPIO13
     id: relay_chaud_f1
     inverted: true
   - platform: gpio
@@ -146,7 +145,7 @@ climate:
     id: therm1
     sensor: temp_f1
     default_target_temperature_low: 19 °C
-    default_target_temperature_high: 20 °C
+    default_target_temperature_high: 20 °C  # <--- Ajouté
     heat_action:
       - switch.turn_on: relay_chaud_f1
     cool_action:
@@ -167,7 +166,7 @@ climate:
     id: therm2
     sensor: temp_f2
     default_target_temperature_low: 19 °C
-    default_target_temperature_high: 20 °C
+    default_target_temperature_high: 20 °C  # <--- Ajouté
     heat_action:
       - switch.turn_on: relay_chaud_f2
     cool_action:
